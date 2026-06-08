@@ -16,7 +16,7 @@ var distFS embed.FS
 
 func main() {
 	// 提取嵌入的静态文件到临时目录
-	tmpDir, err := os.MkdirTemp("", "dbdesigner-*")
+	tmpDir, err := os.MkdirTemp("", "createdb-*")
 	if err != nil {
 		fmt.Println("创建临时目录失败:", err)
 		os.Exit(1)
@@ -72,7 +72,7 @@ func main() {
 	}()
 
 	url := fmt.Sprintf("http://localhost:%d", actualPort)
-	fmt.Println("DBDesigner Pro 启动中...")
+	fmt.Println("Create DB 启动中...")
 	fmt.Println("访问地址:", url)
 
 	// 打开浏览器
