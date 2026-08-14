@@ -1,8 +1,10 @@
 # Create DB
 
-一款专业的数据库表结构设计工具，采用政务风界面，支持可视化 ER 图建模、SQL 生成、数据字典导出等功能。同时支持 MySQL 和 DM（达梦）两种数据库。
+一款专业的数据库表结构设计工具，采用政务风界面，支持可视化 ER 图建模与 SQL 生成等功能。同时支持 MySQL 和 DM（达梦）两种数据库。
 
-![Create DB 运行效果](public/page.png)
+![Create DB 运行效果](public/page-1.png)
+
+![Create DB 运行效果](public/page-2.png)
 
 ## 功能特性
 
