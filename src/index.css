@@ -16,8 +16,8 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: #0f172a;
-  color: #e2e8f0;
+  background-color: #f5f7fa;
+  color: #333333;
 }
 
 /* Scrollbar styling */
@@ -27,21 +27,21 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #f0f2f5;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #c8ccd4;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #a8adb8;
 }
 
 /* Checkbox styling */
 input[type="checkbox"] {
-  accent-color: #0ea5e9;
+  accent-color: #c41e3a;
 }
 
 /* Select dropdown styling */

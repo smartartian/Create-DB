@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useDesignerStore } from '@/store';
+import { useState, useMemo, useEffect } from 'react';
+import { useDesignerStore, collectTableIdsForFolder } from '@/store';
 import { Table, FolderNode } from '@/types';
 import {
   Plus,
@@ -37,6 +37,9 @@ export default function LeftPanel() {
 
   const [search, setSearch] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  // 画布/侧边栏筛选的文件夹 id（null = 根目录），存于全局 store 供画布同步
+  const filterFolderId = useDesignerStore((s) => s.ui.filterFolderId);
+  const setFilterFolderId = useDesignerStore((s) => s.setFilterFolderId);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -46,6 +49,30 @@ export default function LeftPanel() {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+
+  // 当前筛选文件夹的祖先链（含自身），用于路径导航
+  const folderPath = useMemo(() => {
+    const path: FolderNode[] = [];
+    let cur = model.folders.find((f) => f.id === filterFolderId);
+    while (cur) {
+      path.unshift(cur);
+      cur = model.folders.find((f) => f.id === cur.parentId);
+    }
+    return path;
+  }, [model.folders, filterFolderId]);
+
+  // 当前筛选范围内的表 id 集合（null = 根级表）
+  const visibleTableIds = useMemo(
+    () => (filterFolderId ? collectTableIdsForFolder(model, filterFolderId) : null),
+    [filterFolderId, model]
+  );
+
+  // 筛选的文件夹被删除时回到根目录
+  useEffect(() => {
+    if (filterFolderId && !model.folders.some((f) => f.id === filterFolderId)) {
+      setFilterFolderId(null);
+    }
+  }, [model.folders, filterFolderId]);
 
   // Build flat tree list
   const treeNodes = useMemo(() => {
@@ -77,6 +104,7 @@ export default function LeftPanel() {
 
       const table = model.tables.find((t) => t.id === id);
       if (table) {
+        // 树完整展示：展开的文件夹子表始终可见，不依赖筛选状态
         nodes.push({
           id: table.id,
           type: 'table',
@@ -197,20 +225,23 @@ export default function LeftPanel() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-800 border-r border-slate-700">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
-        <span className="text-sm font-semibold text-slate-200">表列表</span>
+    <div className="flex flex-col h-full bg-white border-r border-gov-border">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-gov-border bg-gov-bg">
+        <span className="text-sm font-semibold text-gov-text flex items-center gap-1.5">
+          <span className="w-[3px] h-3.5 bg-gov-red rounded-sm" />
+          表列表
+        </span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => handleAddFolder()}
-            className="p-1 rounded hover:bg-slate-700 text-amber-400 transition-colors"
+            onClick={() => handleAddFolder(filterFolderId)}
+            className="p-1 rounded hover:bg-gov-blueLight text-gov-blue transition-colors"
             title="新建文件夹"
           >
             <FolderPlus size={16} />
           </button>
           <button
-            onClick={() => addTable(`table_${model.tables.length + 1}`, 100 + model.tables.length * 20, 100 + model.tables.length * 20)}
-            className="p-1 rounded hover:bg-slate-700 text-sky-400 transition-colors"
+            onClick={() => addTable(`table_${model.tables.length + 1}`, 100 + model.tables.length * 20, 100 + model.tables.length * 20, filterFolderId)}
+            className="p-1 rounded hover:bg-gov-blueLight text-gov-red transition-colors"
             title="添加表"
           >
             <Plus size={16} />
@@ -218,15 +249,44 @@ export default function LeftPanel() {
         </div>
       </div>
 
+      {/* 路径导航：根目录 → 当前文件夹 */}
+      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gov-border text-xs bg-white overflow-x-auto whitespace-nowrap">
+        <button
+          onClick={() => setFilterFolderId(null)}
+          className={`px-1.5 py-0.5 rounded transition-colors ${
+            filterFolderId === null
+              ? 'bg-gov-blueLight text-gov-blue font-medium'
+              : 'text-gov-textSecondary hover:bg-gov-bg hover:text-gov-text'
+          }`}
+        >
+          根目录
+        </button>
+        {folderPath.map((f) => (
+          <span key={f.id} className="flex items-center gap-1">
+            <span className="text-gov-textMuted">/</span>
+            <button
+              onClick={() => setFilterFolderId(f.id)}
+              className={`px-1.5 py-0.5 rounded transition-colors ${
+                filterFolderId === f.id
+                  ? 'bg-gov-blueLight text-gov-blue font-medium'
+                  : 'text-gov-textSecondary hover:bg-gov-bg hover:text-gov-text'
+              }`}
+            >
+              {f.name}
+            </button>
+          </span>
+        ))}
+      </div>
+
       <div className="px-3 py-2">
         <div className="relative">
-          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gov-textMuted" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索表或文件夹..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-md pl-7 pr-2 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+            className="w-full bg-white border border-gov-border rounded px-7 py-1.5 text-sm text-gov-text placeholder-gov-textMuted focus:outline-none focus:border-gov-blue"
           />
         </div>
       </div>
@@ -237,11 +297,12 @@ export default function LeftPanel() {
         onDrop={(e) => handleDrop(e, null)}
       >
         {treeNodes.length === 0 ? (
-          <div className="text-center py-8 text-slate-500 text-sm">暂无表</div>
+          <div className="text-center py-8 text-gov-textMuted text-sm">暂无表</div>
         ) : (
           <div className="space-y-0.5">
             {treeNodes.map((node) => {
               const isSelected = ui.selectedTableId === node.id;
+              const isFiltering = filterFolderId === node.id && node.type === 'folder';
               const isExpanded = expandedNodes.has(node.id);
               const isDragOver = dragOverFolderId === node.id && node.type === 'folder';
 
@@ -259,18 +320,26 @@ export default function LeftPanel() {
                   onContextMenu={(e) => handleContextMenu(e, node.id, node.type)}
                 >
                   <div
-                    className={`flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer transition-colors group ${
-                      isSelected
-                        ? 'bg-sky-900/30 border border-sky-700/50'
+                    className={`flex items-center gap-1 px-2 py-1.5 rounded cursor-pointer transition-colors group border ${
+                      isSelected || isFiltering
+                        ? 'bg-gov-blueLight border-gov-blue/40'
                         : isDragOver
-                        ? 'bg-amber-900/30 border border-amber-700/50'
-                        : 'hover:bg-slate-700/50'
+                        ? 'bg-amber-50 border-amber-300'
+                        : 'border-transparent hover:bg-gov-bg'
                     }`}
                     onClick={() => {
                       if (node.type === 'table') {
                         selectTable(node.id);
+                        // 选中表时，筛选文件夹自动切换为该表的父文件夹
+                        const parentFolder = model.folders.find((f) => f.children.includes(node.id));
+                        const parentId = parentFolder ? parentFolder.id : null;
+                        if (parentId !== filterFolderId) {
+                          setFilterFolderId(parentId);
+                        }
                       } else {
-                        toggleExpand(node.id);
+                        // 点击文件夹：筛选该文件夹及其子文件夹下的所有表
+                        setFilterFolderId(node.id);
+                        setExpandedNodes((prev) => new Set(prev).add(node.id));
                       }
                     }}
                   >
@@ -280,7 +349,7 @@ export default function LeftPanel() {
                           e.stopPropagation();
                           toggleExpand(node.id);
                         }}
-                        className="p-0.5 text-slate-500 hover:text-slate-300"
+                        className="p-0.5 text-gov-textMuted hover:text-gov-text"
                       >
                         {isExpanded ? (
                           <ChevronDown size={12} />
@@ -291,12 +360,12 @@ export default function LeftPanel() {
                     )}
                     {node.type === 'folder' ? (
                       isExpanded ? (
-                        <FolderOpen size={14} className="text-amber-400 shrink-0" />
+                        <FolderOpen size={14} className="text-amber-500 shrink-0" />
                       ) : (
-                        <Folder size={14} className="text-amber-400 shrink-0" />
+                        <Folder size={14} className="text-amber-500 shrink-0" />
                       )
                     ) : (
-                      <Table2 size={14} className="text-sky-400 shrink-0" />
+                      <Table2 size={14} className="text-gov-blue shrink-0" />
                     )}
 
                     {editingFolderId === node.id ? (
@@ -312,21 +381,21 @@ export default function LeftPanel() {
                             setEditingName('');
                           }
                         }}
-                        className="flex-1 bg-slate-900 border border-sky-500 rounded px-1 py-0.5 text-sm text-slate-200 focus:outline-none"
+                        className="flex-1 bg-white border border-gov-blue rounded px-1 py-0.5 text-sm text-gov-text focus:outline-none"
                       />
                     ) : (
-                      <span className="text-sm text-slate-200 truncate flex-1">
+                      <span className="text-sm text-gov-text truncate flex-1">
                         {node.name}
                       </span>
                     )}
 
                     {node.type === 'table' && (
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-gov-textMuted">
                         {node.table?.columns.length || 0}
                       </span>
                     )}
                     {node.type === 'folder' && (
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-gov-textMuted">
                         {node.folder?.children.length || 0}
                       </span>
                     )}
@@ -336,7 +405,7 @@ export default function LeftPanel() {
                         e.stopPropagation();
                         handleContextMenu(e, node.id, node.type);
                       }}
-                      className="p-0.5 text-slate-500 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="p-0.5 text-gov-textMuted hover:text-gov-text opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <MoreHorizontal size={12} />
                     </button>
@@ -348,8 +417,10 @@ export default function LeftPanel() {
         )}
       </div>
 
-      <div className="px-3 py-2 border-t border-slate-700 text-xs text-slate-500">
-        共 {model.tables.length} 张表 | {model.folders.length} 个文件夹
+      <div className="px-3 py-2 border-t border-gov-border text-xs text-gov-textMuted">
+        {filterFolderId
+          ? `${visibleTableIds?.size ?? 0} 张表（${folderPath[folderPath.length - 1]?.name ?? ''}）`
+          : `共 ${model.tables.length} 张表 | ${model.folders.length} 个文件夹`}
       </div>
 
       {/* Context Menu */}
@@ -360,7 +431,7 @@ export default function LeftPanel() {
             onClick={() => setContextMenu(null)}
           />
           <div
-            className="fixed z-50 bg-slate-800 border border-slate-700 rounded-md shadow-lg py-1 min-w-[140px]"
+            className="fixed z-50 bg-white border border-gov-border rounded shadow-lg py-1 min-w-[140px]"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
             {contextMenu.nodeType === 'folder' && (
@@ -370,17 +441,17 @@ export default function LeftPanel() {
                     handleAddFolder(contextMenu.nodeId);
                     setContextMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gov-text hover:bg-gov-bg transition-colors"
                 >
                   新建子文件夹
                 </button>
                 <button
                   onClick={() => handleRenameFolder(contextMenu.nodeId)}
-                  className="w-full text-left px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gov-text hover:bg-gov-bg transition-colors"
                 >
                   重命名
                 </button>
-                <div className="border-t border-slate-700 my-1" />
+                <div className="border-t border-gov-border my-1" />
               </>
             )}
             <button
@@ -392,7 +463,7 @@ export default function LeftPanel() {
                 }
                 setContextMenu(null);
               }}
-              className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-slate-700 transition-colors"
+              className="w-full text-left px-3 py-1.5 text-sm text-gov-red hover:bg-gov-bg transition-colors"
             >
               删除
             </button>

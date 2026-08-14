@@ -17,6 +17,7 @@ interface DesignerState {
   addColumn: (tableId: string, column: Partial<Column>) => void;
   updateColumn: (tableId: string, columnId: string, updates: Partial<Column>) => void;
   deleteColumn: (tableId: string, columnId: string) => void;
+  reorderColumn: (tableId: string, columnId: string, toIndex: number) => void;
   addIndex: (tableId: string, index: Partial<Index>) => void;
   updateIndex: (tableId: string, indexId: string, updates: Partial<Index>) => void;
   deleteIndex: (tableId: string, indexId: string) => void;
@@ -24,11 +25,15 @@ interface DesignerState {
   deleteRelation: (relationId: string) => void;
   setDatabaseType: (type: DatabaseType) => void;
   moveTable: (tableId: string, x: number, y: number) => void;
+  resizeTable: (tableId: string, width: number, height: number) => void;
+  duplicateTable: (tableId: string, offsetX?: number, offsetY?: number) => void;
   selectTable: (tableId: string | null) => void;
   selectColumn: (columnId: string | null) => void;
   selectRelation: (relationId: string | null) => void;
-  toggleSqlPanel: () => void;
-  toggleDictPanel: () => void;
+  setFilterFolderId: (folderId: string | null) => void;
+  toggleToolbarLeft: () => void;
+  setRightPanelVisible: (visible: boolean) => void;
+  setMainView: (view: 'canvas' | 'sql') => void;
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -55,16 +60,36 @@ function createEmptyModel(): DBModel {
   };
 }
 
+// 递归收集文件夹（含所有子文件夹）内的表 id，供侧边栏筛选与画布过滤共用
+export function collectTableIdsForFolder(model: DBModel, folderId: string): Set<string> {
+  const ids = new Set<string>();
+  const walk = (fid: string) => {
+    const folder = model.folders.find((f) => f.id === fid);
+    if (!folder) return;
+    for (const childId of folder.children) {
+      if (model.folders.some((f) => f.id === childId)) {
+        walk(childId);
+      } else {
+        ids.add(childId);
+      }
+    }
+  };
+  walk(folderId);
+  return ids;
+}
+
 function createDefaultUI(): UIState {
   return {
     selectedTableId: null,
     selectedColumnId: null,
     selectedRelationId: null,
-    showSqlPanel: true,
-    showDictPanel: false,
+    mainView: 'canvas',
     leftPanelWidth: 240,
     rightPanelWidth: 320,
     bottomPanelHeight: 200,
+    filterFolderId: null,
+    showToolbarLeft: true,
+    showRightPanel: false,
   };
 }
 
@@ -90,6 +115,7 @@ export const useDesignerStore = create<DesignerState>((set, get) => ({
       position: { x, y },
       width: 200,
       height: 120,
+      zIndex: model.tables.length,
     };
     const newTables = [...model.tables, newTable];
     let newFolders = model.folders;
@@ -203,6 +229,26 @@ export const useDesignerStore = create<DesignerState>((set, get) => ({
     get().pushHistory();
   },
 
+  // 调整字段顺序（按目标索引重排并重设 ordinal）
+  reorderColumn: (tableId, columnId, toIndex) => {
+    const { model } = get();
+    const newModel = {
+      ...model,
+      tables: model.tables.map((t) => {
+        if (t.id !== tableId) return t;
+        const cols = [...t.columns];
+        const fromIndex = cols.findIndex((c) => c.id === columnId);
+        if (fromIndex < 0) return t;
+        const [moved] = cols.splice(fromIndex, 1);
+        const target = Math.max(0, Math.min(cols.length, toIndex));
+        cols.splice(target, 0, moved);
+        return { ...t, columns: cols.map((c, i) => ({ ...c, ordinal: i })) };
+      }),
+    };
+    set({ model: newModel });
+    get().pushHistory();
+  },
+
   addIndex: (tableId, index) => {
     const { model } = get();
     const table = model.tables.find((t) => t.id === tableId);
@@ -308,8 +354,63 @@ export const useDesignerStore = create<DesignerState>((set, get) => ({
     set({ model: newModel });
   },
 
+  // 调整表卡片大小（拖拽过程中调用，不进撤销历史）
+  resizeTable: (tableId, width, height) => {
+    const { model } = get();
+    const newModel = {
+      ...model,
+      tables: model.tables.map((t) => (t.id === tableId ? { ...t, width, height } : t)),
+    };
+    set({ model: newModel });
+  },
+
+  // 复制已有表创建新表（字段/索引/所属文件夹一并复制）
+  duplicateTable: (tableId, offsetX = 40, offsetY = 40) => {
+    const { model } = get();
+    const src = model.tables.find((t) => t.id === tableId);
+    if (!src) return;
+
+    const idMap = new Map<string, string>();
+    const newTable: Table = {
+      ...src,
+      id: generateId('tbl_'),
+      name: `${src.name}_copy`,
+      position: { x: src.position.x + offsetX, y: src.position.y + offsetY },
+      columns: src.columns.map((c) => {
+        const nid = generateId('col_');
+        idMap.set(c.id, nid);
+        return { ...c, id: nid };
+      }),
+      indexes: src.indexes.map((idx) => ({
+        ...idx,
+        id: generateId('idx_'),
+        columns: idx.columns.map((ic) => ({ ...ic, columnId: idMap.get(ic.columnId) || ic.columnId })),
+      })),
+      zIndex: model.tables.length,
+    };
+
+    // 复制到源表所在文件夹
+    let newFolders = model.folders;
+    const srcFolder = model.folders.find((f) => f.children.includes(src.id));
+    if (srcFolder) {
+      newFolders = model.folders.map((f) =>
+        f.id === srcFolder.id ? { ...f, children: [...f.children, newTable.id] } : f
+      );
+    }
+
+    const newModel = { ...model, tables: [...model.tables, newTable], folders: newFolders };
+    set({ model: newModel, ui: { ...get().ui, selectedTableId: newTable.id } });
+    get().pushHistory();
+  },
+
   selectTable: (tableId) => {
-    set({ ui: { ...get().ui, selectedTableId: tableId, selectedColumnId: null, selectedRelationId: null } });
+    if (tableId) {
+      // 选中表：打开右侧面板并切换到属性 tab
+      set({ ui: { ...get().ui, selectedTableId: tableId, selectedColumnId: null, selectedRelationId: null, showRightPanel: true } });
+    } else {
+      // 取消选中（点击画布空白）：不改变面板显示状态
+      set({ ui: { ...get().ui, selectedTableId: null, selectedColumnId: null, selectedRelationId: null } });
+    }
   },
 
   selectColumn: (columnId) => {
@@ -320,12 +421,23 @@ export const useDesignerStore = create<DesignerState>((set, get) => ({
     set({ ui: { ...get().ui, selectedRelationId: relationId, selectedTableId: null, selectedColumnId: null } });
   },
 
-  toggleSqlPanel: () => {
-    set({ ui: { ...get().ui, showSqlPanel: !get().ui.showSqlPanel } });
+  // 折叠/展开工具栏左侧区域（数据库选择器及左侧内容）
+  toggleToolbarLeft: () => {
+    set({ ui: { ...get().ui, showToolbarLeft: !get().ui.showToolbarLeft } });
   },
 
-  toggleDictPanel: () => {
-    set({ ui: { ...get().ui, showDictPanel: !get().ui.showDictPanel } });
+  // 显示/隐藏右侧面板
+  setRightPanelVisible: (visible) => {
+    set({ ui: { ...get().ui, showRightPanel: visible } });
+  },
+
+  // 切换主区域视图（画布 / SQL 编辑器）
+  setMainView: (view) => {
+    set({ ui: { ...get().ui, mainView: view } });
+  },
+
+  setFilterFolderId: (folderId) => {
+    set({ ui: { ...get().ui, filterFolderId: folderId } });
   },
 
   undo: () => {

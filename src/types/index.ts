@@ -40,6 +40,10 @@ export interface Table {
   position: { x: number; y: number };
   width: number;
   height: number;
+  // 画布展示层级，越大越靠上层
+  zIndex?: number;
+  // 画布表头背景颜色（默认深藏蓝）
+  headerColor?: string;
 }
 
 // 字段定义
@@ -97,11 +101,17 @@ export interface UIState {
   selectedTableId: string | null;
   selectedColumnId: string | null;
   selectedRelationId: string | null;
-  showSqlPanel: boolean;
-  showDictPanel: boolean;
+  // 主区域视图：画布 / SQL 编辑器
+  mainView: 'canvas' | 'sql';
   leftPanelWidth: number;
   rightPanelWidth: number;
   bottomPanelHeight: number;
+  // 画布筛选的文件夹 id（null = 根目录，画布显示全部）
+  filterFolderId: string | null;
+  // 工具栏是否显示左侧区域（数据库选择器及左侧内容）
+  showToolbarLeft: boolean;
+  // 右侧面板是否显示（表属性）
+  showRightPanel: boolean;
 }
 
 // 历史记录条目
